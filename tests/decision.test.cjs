@@ -1,0 +1,24 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const nodes=new Map(),listeners=[];
+const node=s=>{if(!nodes.has(s))nodes.set(s,{innerHTML:'',textContent:'',dataset:{},classList:{add(){},remove(){}},addEventListener(){},showModal(){},close(){}});return nodes.get(s)};
+const context={document:{querySelector:node,addEventListener(...args){listeners.push(args)}},localStorage:{getItem(){return null},setItem(){}},structuredClone,location:{hash:'',origin:'https://example.test',pathname:'/grad-trip/'},history:{replaceState(){}},setTimeout(){},clearTimeout(){},console,TextEncoder,TextDecoder,Uint8Array,atob,btoa,Date,Blob,URL,crypto:require('node:crypto').webcrypto};
+vm.createContext(context);
+for(const f of ['app.js','decision.js'])vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'..',f),'utf8'),context);
+const run=s=>vm.runInContext(s,context);
+assert.equal(run('validTripShape(state)'),true);
+assert.equal(run("validTripShape({...state,revision:'<img src=x onerror=alert(1)>'})"),false);
+assert.equal(run("validTripShape({...state,members:state.members.map((m,i)=>i===0?{...m,id:'__proto__'}:m)})"),false);
+assert.equal(run('commonDates().from'),'2027-06-22');assert.equal(run('commonDates().to'),'2027-06-26');
+assert.equal(run('analyze().budgetConflicts.length'),1);assert.equal(run('analyze().timeConflicts.length'),2);
+assert.equal(run('recommendations()[0].city.id'),'dali');assert.equal(run('recommendations()[0].tier'),'basic');assert.equal(run('recommendations()[0].ok'),true);
+assert.equal(run('validDay("2027-02-30")'),false);
+for(const f of ['renderHome','renderConsensus','renderDestinations','renderItinerary','renderExpenses','renderMembers','bookingPage']){const html=run(f+'()');assert(!html.includes('NaN'),f);assert(!html.includes('undefined'),f);console.log(f+' passed')}
+run(`state.members[1].availableTo='2027-06-20';`);assert.equal(run('commonDates().fits'),false);assert.equal(run('recommendations().some(r=>r.ok)'),false);
+run(`state.members[1].availableTo='2027-06-28';state.members.forEach(m=>m.budget=100);`);assert.equal(run('recommendations().some(r=>r.ok)'),false);
+run(`state=structuredClone(defaults);initDecision();state.lastHash=fingerprint();state.approvals.me={status:'yes',hash:fingerprint()};`);
+assert.equal(run('approvedCount()'),1);const rev=run('state.revision');run(`state.plan[0].items[0].note='changed';save()`);assert.equal(run('approvedCount()'),0);assert.equal(run('state.revision'),rev+1);
+run(`state.approvals.me={status:'yes',hash:fingerprint()};state.viewer='m2';save();`);assert.equal(run('approvedCount()'),1);
+run(`state.expenses=[{amount:100,payer:'me',participants:['me','m2','m3']}];state.transfers=[];`);assert.equal(run('balances().me'),66);
+run(`state.transfers=[{from:'m2',to:'me',amount:33}];`);assert.equal(run('balances().m2'),0);assert.equal(run('balances().me'),33);assert.equal(run('settlementList().length'),1);
+assert.equal(run('Object.values(balances()).reduce((a,b)=>a+b,0)'),0);
+console.log('Constraint feasibility, hard conflicts, confirmation invalidation, role independence and settlement accounting passed.');
